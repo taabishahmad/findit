@@ -46,7 +46,6 @@ def get_db():
         port=int(os.environ.get('MYSQLPORT', 3306)),
         cursorclass=pymysql.cursors.DictCursor
     )
-
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 

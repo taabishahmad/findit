@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}FindIt – Community Lost &amp; Found Board{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Lost Something? <span>Found Something?</span></h1>
+  <p>Free searchable community board for IIUI. Post in seconds. No fee.</p>
+  <form action="{{ url_for('index') }}" method="get" style="display:contents">
+    {% if filter != 'all' %}<input type="hidden" name="filter" value="{{ filter }}">{% endif %}
+    <div class="search-bar">
+      <input type="text" name="search" value="{{ search }}" placeholder="Search item, location…">
+      <button type="submit">🔍 Search</button>
+    </div>
+  </form>
+</section>
+
+<div class="filter-bar">
+  <span class="filter-label">Filter:</span>
+  <a href="{{ url_for('index', search=search) }}" class="fbtn {% if filter=='all' %}fa{% endif %}">All</a>
+  <a href="{{ url_for('index', search=search, filter='lost') }}" class="fbtn {% if filter=='lost' %}fl{% endif %}">🔍 Lost</a>
+  <a href="{{ url_for('index', search=search, filter='found') }}" class="fbtn {% if filter=='found' %}ff{% endif %}">✅ Found</a>
+</div>
+
+<div class="container">
+{% if posts %}
+  <div class="grid">
+    {% for post in posts %}
+    <div class="card">
+      {% if post.photo %}
+        <img class="card-img" src="{{ url_for('static', filename='uploads/'+post.photo) }}" alt="{{ post.title }}">
+      {% else %}
+        <div class="card-ph">{{ '🔍' if post.type=='lost' else '📦' }}</div>
+      {% endif %}
+      <div class="card-body">
+        <div class="card-top">
+          <span class="card-title">{{ post.title }}</span>
+          <span class="badge bdg-{{ post.type }}">{{ post.type.upper() }}</span>
+        </div>
+        <p class="card-desc">{{ post.description }}</p>
+        <div class="card-meta">📍 {{ post.location }}</div>
+        {% if post.poster_name %}<div class="card-meta">👤 {{ post.poster_name }}</div>{% endif %}
+      </div>
+      <div class="card-foot">
+        <span class="card-date">{{ post.created_at.strftime('%b %d, %Y') if post.created_at else '' }}</span>
+        <a href="{{ url_for('view_post', post_id=post.id) }}" class="btn-view">View →</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty">
+    <div style="font-size:3.5rem">🔎</div>
+    <h3>No posts found</h3>
+    {% if search %}
+      <p>No results for "<strong>{{ search }}</strong>". <a href="{{ url_for('index') }}">Clear</a></p>
+    {% else %}
+      <p>Be the first to post!</p>
+    {% endif %}
+    <br>
+    {% if session.user_id %}
+      <a href="{{ url_for('post_item') }}" class="btn btn-primary">Post an Item</a>
+    {% else %}
+      <a href="{{ url_for('register') }}" class="btn btn-primary">Register to Post</a>
+    {% endif %}
+  </div>
+{% endif %}
+</div>
+{% endblock %}

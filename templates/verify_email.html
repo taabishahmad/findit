@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Verify Email – FindIt{% endblock %}
+{% block content %}
+<div class="container">
+<div class="auth-card" style="text-align:center">
+  <a href="{{ url_for('register') }}" class="back-btn">← Back to Register</a>
+  <div class="auth-icon">📧</div>
+  <h1 class="auth-title">Check Your Email</h1>
+  <p class="auth-sub">We sent a 6-digit OTP to<br><strong style="color:var(--teal)">{{ email }}</strong></p>
+
+  <form method="post" action="{{ url_for('verify_email') }}">
+    <div class="otp-row">
+      {% for i in range(6) %}
+      <input type="text" class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]">
+      {% endfor %}
+    </div>
+    <input type="hidden" id="otp-hidden" name="otp">
+    <button type="submit" class="btn btn-primary btn-full" style="margin-top:1.2rem">Verify & Continue →</button>
+  </form>
+
+  <p style="margin-top:1.2rem;font-size:.85rem;color:var(--text2)">
+    Didn't get it? <a href="{{ url_for('resend_otp') }}">Resend OTP</a>
+  </p>
+  <p style="font-size:.76rem;color:var(--text3);margin-top:.4rem">OTP expires in 10 minutes.</p>
+</div>
+</div>
+{% endblock %}

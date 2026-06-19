@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Admin Dashboard – FindIt{% endblock %}
+{% block content %}
+<div class="admin-top">
+  <h2>⚙️ Admin Dashboard</h2>
+  <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+    <a href="{{ url_for('admin_users') }}" class="btn btn-sm" style="background:rgba(255,255,255,.15);color:#fff;border-radius:50px;padding:.4rem 1rem">👥 Users</a>
+    <a href="{{ url_for('admin_logout') }}" class="btn btn-sm" style="background:rgba(255,255,255,.1);color:#fff;border-radius:50px;padding:.4rem 1rem">Logout</a>
+  </div>
+</div>
+<div class="container" style="margin-top:1.5rem">
+  <div class="stats-row">
+    <div class="sc"><div class="sn">{{ stats.active }}</div><div class="sl">Active</div></div>
+    <div class="sc s-l"><div class="sn">{{ stats.lost }}</div><div class="sl">Lost</div></div>
+    <div class="sc s-f"><div class="sn">{{ stats.found }}</div><div class="sl">Found</div></div>
+    <div class="sc s-r"><div class="sn">{{ stats.resolved }}</div><div class="sl">Resolved</div></div>
+    <div class="sc s-u"><div class="sn">{{ stats.users }}</div><div class="sl">Users</div></div>
+    <div class="sc"><div class="sn">{{ stats.all_users }}</div><div class="sl">Registered</div></div>
+  </div>
+  <h2 class="pg-head">📋 All Posts</h2>
+  {% if posts %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>#</th><th>Title</th><th>Type</th><th>Location</th><th>Posted By</th><th>Contact</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for post in posts %}
+        <tr>
+          <td style="color:var(--text3)">{{ post.id }}</td>
+          <td><a href="{{ url_for('view_post', post_id=post.id) }}" style="font-weight:600">{{ post.title }}</a></td>
+          <td><span class="badge bdg-{{ post.type }}">{{ post.type.upper() }}</span></td>
+          <td style="color:var(--text2);font-size:.82rem">{{ post.location }}</td>
+          <td style="font-size:.82rem">{{ post.poster_name or '—' }}</td>
+          <td style="font-size:.82rem">{{ post.contact }}</td>
+          <td>
+            {% if post.status=='resolved' %}<span style="color:var(--resolved);font-size:.78rem;font-weight:600">✓ RESOLVED</span>
+            {% else %}<span style="color:var(--found);font-size:.78rem;font-weight:600">● ACTIVE</span>{% endif %}
+          </td>
+          <td style="font-size:.78rem;color:var(--text3)">{{ post.created_at.strftime('%b %d, %Y') if post.created_at else '' }}</td>
+          <td style="display:flex;gap:.3rem">
+            {% if post.status=='active' %}
+            <a href="{{ url_for('resolve_post', post_id=post.id) }}" class="btn btn-sm btn-amber" onclick="return confirm('Mark resolved?')">✓</a>
+            {% endif %}
+            <a href="{{ url_for('admin_delete', post_id=post.id) }}" class="btn btn-sm btn-danger" onclick="return confirm('Delete permanently?')">🗑</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<p style="color:var(--text2)">No posts yet.</p>{% endif %}
+</div>
+{% endblock %}

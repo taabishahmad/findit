@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Post Item – FindIt{% endblock %}
+{% block content %}
+<div class="container">
+<div class="auth-card" style="max-width:640px">
+  <a href="{{ url_for('index') }}" class="back-btn">← Back to Board</a>
+  <h1 class="auth-title">Post an Item</h1>
+  <p class="auth-sub">Lost something or found something? Post it here. The AI can help improve your description.</p>
+
+  <form method="post" action="{{ url_for('post_item') }}" enctype="multipart/form-data">
+    <div class="fg">
+      <label>Type <span class="req">*</span></label>
+      <div class="type-toggle">
+        <div class="type-opt">
+          <input type="radio" name="type" id="tlost" value="lost" checked>
+          <label for="tlost">🔍 I Lost Something</label>
+        </div>
+        <div class="type-opt">
+          <input type="radio" name="type" id="tfound" value="found">
+          <label for="tfound">✅ I Found Something</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="fg">
+      <label for="title">Item Name <span class="req">*</span></label>
+      <input type="text" id="title" name="title" class="fc" placeholder="e.g. Black leather wallet" required maxlength="150" autocomplete="off">
+    </div>
+
+    <div class="fg">
+      <label for="description">Description <span class="req">*</span></label>
+      <textarea id="description" name="description" class="fc" placeholder="Colour, brand, size, identifying marks…" required maxlength="1000"></textarea>
+      <div id="ai-box" class="ai-box" style="display:none"></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+      <div class="fg">
+        <label for="location">Location <span class="req">*</span></label>
+        <input type="text" id="location" name="location" class="fc" placeholder="e.g. IIUI Cafeteria" required maxlength="200">
+      </div>
+      <div class="fg">
+        <label for="date_lost">Date Lost/Found</label>
+        <input type="date" id="date_lost" name="date_lost" class="fc">
+      </div>
+    </div>
+
+    <div class="fg">
+      <label for="contact">Contact Number <span class="req">*</span></label>
+      <input type="tel" id="contact" name="contact" class="fc" placeholder="03001234567" required maxlength="20">
+      <p class="fhint">Pakistani format only. People will WhatsApp/SMS this number directly.</p>
+    </div>
+
+    <div class="fg">
+      <label for="photo">Photo (optional)</label>
+      <input type="file" id="photo" name="photo" class="fc" accept="image/*">
+      <p class="fhint">JPG / PNG / WEBP — max 5 MB</p>
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-full" style="margin-top:.5rem">Submit Post →</button>
+  </form>
+</div>
+</div>
+{% endblock %}

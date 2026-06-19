@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FindIt – Lost &amp; Found{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+<nav class="navbar">
+  <a class="nav-brand" href="{{ url_for('index') }}">
+    <img src="{{ url_for('static', filename='images/logo.png') }}" alt="FindIt" onerror="this.style.display='none'">
+    Find<span class="brand-dot">It</span>
+  </a>
+  <ul class="nav-links">
+    <li><a href="{{ url_for('index') }}" class="{% if request.endpoint=='index' %}active{% endif %}">Board</a></li>
+
+    {% if session.get('admin') %}
+      {# Admin is logged in #}
+      <li><a href="{{ url_for('admin_dashboard') }}" class="nav-user active">⚙️ Admin Panel</a></li>
+      <li><a href="{{ url_for('admin_logout') }}">Admin Logout</a></li>
+
+    {% elif session.get('user_id') %}
+      {# Regular user is logged in #}
+      <li><a href="{{ url_for('post_item') }}" class="btn-nav-post">+ Post Item</a></li>
+      <li><a href="{{ url_for('profile') }}" class="nav-user {% if request.endpoint=='profile' %}active{% endif %}">
+        {% if session.get('user_pic') %}
+          <img src="{{ url_for('static', filename='uploads/' + session.user_pic) }}"
+               style="width:22px;height:22px;border-radius:50%;object-fit:cover;margin-right:2px;"
+               alt="pic" onerror="this.style.display='none'">
+        {% else %}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+        {% endif %}
+        {{ session.get('user_name', '').split()[0] }}
+      </a></li>
+      <li><a href="{{ url_for('logout') }}">Logout</a></li>
+
+    {% else %}
+      {# Not logged in #}
+      <li><a href="{{ url_for('login') }}" class="{% if request.endpoint=='login' %}active{% endif %}">Login</a></li>
+      <li><a href="{{ url_for('register') }}" class="btn-nav-post {% if request.endpoint=='register' %}active{% endif %}">Register</a></li>
+    {% endif %}
+
+    <li><button class="theme-btn" id="theme-btn" onclick="toggleTheme()" title="Toggle theme">🌙</button></li>
+  </ul>
+</nav>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="container" style="padding-top:1rem;padding-bottom:0">
+      <ul class="flashes">
+        {% for cat, msg in messages %}
+          <li class="flash flash-{{ cat }}">{{ msg }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+
+<footer>
+  <strong>FindIt</strong> – Community Lost &amp; Found &nbsp;|&nbsp;
+  Web Engineering + AI Project &nbsp;|&nbsp; IIUI 2026
+  &nbsp;|&nbsp; <a href="{{ url_for('admin_login') }}" style="color:var(--amber)">Admin Login</a>
+</footer>
+
+<!-- AI Chatbot -->
+<button class="chat-fab" onclick="toggleChat()" title="AI Assistant">🤖
+  <span class="chat-dot"></span>
+</button>
+<div class="chat-win" id="chat-win">
+  <div class="chat-hdr">
+    <div class="chat-hdr-info">
+      <div class="chat-av">🤖</div>
+      <div><h4>FindIt Assistant</h4><p>AI-powered • Always online</p></div>
+    </div>
+    <button onclick="toggleChat()" class="chat-x">✕</button>
+  </div>
+  <div class="chat-msgs" id="chat-msgs"></div>
+  <div class="chat-foot">
+    <input id="chat-in" class="chat-inp" type="text" placeholder="Ask about lost/found items…">
+    <button id="chat-send" class="chat-send-btn">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+      </svg>
+    </button>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

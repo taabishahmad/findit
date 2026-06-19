@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}My Profile – FindIt{% endblock %}
+{% block content %}
+<div class="prof-hero">
+
+  <!-- Back button row — sits at top left clearly separated -->
+  <div style="text-align:left;margin-bottom:1.8rem;">
+    <a href="{{ url_for('index') }}" class="back-btn"
+       style="color:rgba(255,255,255,.85);display:inline-flex;align-items:center;gap:.4rem;">
+      ← Back to Board
+    </a>
+  </div>
+
+  <!-- Profile picture centered below the back button -->
+  <div style="display:flex;flex-direction:column;align-items:center;gap:.6rem;">
+
+    <div style="position:relative;display:inline-block;">
+      {% if user.profile_pic %}
+        <img src="{{ url_for('static', filename='uploads/' + user.profile_pic) }}"
+             class="prof-pic-img" alt="Profile Picture">
+      {% else %}
+        <div class="prof-av">{{ user.name[0].upper() }}</div>
+      {% endif %}
+
+      <!-- Upload button — bottom-right corner of the avatar -->
+      <form action="{{ url_for('upload_profile_pic') }}" method="post"
+            enctype="multipart/form-data" id="pic-form">
+        <label for="pic-input" class="prof-pic-btn" title="Change profile picture">📷</label>
+        <input type="file" id="pic-input" name="profile_pic" accept="image/*"
+               style="display:none" onchange="document.getElementById('pic-form').submit()">
+      </form>
+    </div>
+
+    <div class="prof-name">{{ user.name }}</div>
+    <div class="prof-email">{{ user.email }}</div>
+    <span class="vbadge" style="display:inline-flex">✓ Verified Account</span>
+    <p style="font-size:.75rem;opacity:.65;margin-top:.2rem;">Click 📷 to change profile picture</p>
+
+  </div>
+
+</div>
+<div class="container">
+  <div class="prof-grid">
+    <div class="prof-sidebar">
+      <div class="info-item"><div class="ilbl">📞 Phone</div><div class="ival">{{ user.phone }}</div></div>
+      <div class="info-item" style="margin-top:.8rem"><div class="ilbl">📅 Member Since</div><div class="ival">{{ user.created_at.strftime('%B %Y') if user.created_at else '' }}</div></div>
+      <div class="info-item" style="margin-top:.8rem"><div class="ilbl">📋 Total Posts</div>
+        <div style="font-family:var(--fh);font-size:2rem;font-weight:800;color:var(--teal)">{{ my_posts|length }}</div></div>
+      <div style="margin-top:1.2rem;display:flex;flex-direction:column;gap:.5rem">
+        <a href="{{ url_for('post_item') }}" class="btn btn-primary btn-sm">+ New Post</a>
+        <a href="{{ url_for('logout') }}" class="btn btn-ghost btn-sm">Logout</a>
+      </div>
+    </div>
+    <div>
+      <h2 class="pg-head">📋 My Posts</h2>
+      {% if my_posts %}
+        <div class="grid">
+          {% for post in my_posts %}
+          <div class="card">
+            {% if post.photo %}
+              <img class="card-img" src="{{ url_for('static', filename='uploads/'+post.photo) }}" alt="{{ post.title }}">
+            {% else %}
+              <div class="card-ph">{{ '🔍' if post.type=='lost' else '📦' }}</div>
+            {% endif %}
+            <div class="card-body">
+              <div class="card-top">
+                <span class="card-title">{{ post.title }}</span>
+                <span class="badge bdg-{{ post.type }}">{{ post.type.upper() }}</span>
+              </div>
+              <p class="card-desc">{{ post.description }}</p>
+              <div class="card-meta">📍 {{ post.location }}</div>
+            </div>
+            <div class="card-foot">
+              <span class="badge bdg-{{ post.status }}">{{ post.status.upper() }}</span>
+              <a href="{{ url_for('view_post', post_id=post.id) }}" class="btn-view">View →</a>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty">
+          <div style="font-size:3rem">📭</div>
+          <h3>No posts yet</h3>
+          <p>You haven't posted anything yet.</p>
+          <br><a href="{{ url_for('post_item') }}" class="btn btn-primary">Post First Item</a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

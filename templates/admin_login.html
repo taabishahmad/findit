@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Admin Login – FindIt{% endblock %}
+{% block content %}
+<div class="container">
+<div class="auth-card" style="max-width:380px;margin-top:3rem">
+  <a href="{{ url_for('index') }}" class="back-btn">← Back to Board</a>
+  <div class="auth-icon">🔐</div>
+  <h1 class="auth-title" style="font-size:1.35rem">Admin Login</h1>
+  <p class="auth-sub" style="margin-bottom:0">Restricted access — authorised personnel only</p>
+  <form method="post" style="margin-top:1.2rem">
+    <div class="fg">
+      <label>Email / Username</label>
+      <input type="text" name="username" class="fc"
+             placeholder="Enter admin email" required autocomplete="username">
+    </div>
+    <div class="fg">
+      <label>Password</label>
+      <input type="password" name="password" class="fc"
+             placeholder="Enter admin password" required autocomplete="current-password">
+    </div>
+    <button type="submit" class="btn btn-primary btn-full">Login →</button>
+  </form>
+</div>
+</div>
+{% endblock %}

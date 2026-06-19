@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Register – FindIt{% endblock %}
+{% block content %}
+<div class="container">
+<div class="auth-card">
+  <a href="{{ url_for('index') }}" class="back-btn">← Back to Board</a>
+  <div class="auth-icon">📝</div>
+  <h1 class="auth-title">Create Account</h1>
+  <p class="auth-sub">Join FindIt and start posting lost &amp; found items.</p>
+
+  <form method="post" action="{{ url_for('register') }}" novalidate>
+    <div class="fg">
+      <label>Full Name <span class="req">*</span></label>
+      <input type="text" name="name" class="fc" value="{{ name or '' }}" placeholder="e.g. Ahmed Khan" required minlength="2" maxlength="100">
+    </div>
+    <div class="fg">
+      <label>IIUI Student Email <span class="req">*</span></label>
+      <input type="email" name="email" class="fc" value="{{ email or '' }}"
+             placeholder="e.g. tabish.bscs4969@student.iiu.edu.pk" required>
+      <p class="fhint">Must be your IIUI email: <strong>name.degree+regnum@student.iiu.edu.pk</strong><br>
+        Registration number: 1 to 5 digits. An OTP will be sent to verify.</p>
+    </div>
+    <div class="fg">
+      <label>Phone Number <span class="req">*</span></label>
+      <input type="tel" name="phone" class="fc" value="{{ phone or '' }}" placeholder="03001234567" required>
+      <p class="fhint">Pakistani format only (03XX-XXXXXXX)</p>
+    </div>
+    <div class="fg">
+      <label>Password <span class="req">*</span></label>
+      <input type="password" id="password" name="password" class="fc"
+             placeholder="Min 8 chars, uppercase, number, special char" required minlength="8">
+      <div id="pw-bar" class="pw-bar"></div>
+      <p id="pw-hint" class="fhint"></p>
+      <p class="fhint" style="margin-top:.2rem">Must include: uppercase letter, number, special character (@, !, # etc.)</p>
+    </div>
+    <div class="fg">
+      <label>Confirm Password <span class="req">*</span></label>
+      <input type="password" name="confirm_password" class="fc" placeholder="Repeat your password" required>
+    </div>
+    <button type="submit" class="btn btn-primary btn-full">Create Account &amp; Send OTP →</button>
+  </form>
+
+  <div class="auth-divider">or</div>
+  <p class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+</div>
+</div>
+{% endblock %}

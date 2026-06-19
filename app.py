@@ -38,8 +38,11 @@ OPENAI_API_KEY = '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'
 # ══════════════════════════════════════════════════════════════
 def get_db():
     return pymysql.connect(
-        host='localhost', user='root', password='',
-        database='findit_db',
+        host=os.environ.get('MYSQLHOST', 'localhost'),
+        user=os.environ.get('MYSQLUSER', 'root'),
+        password=os.environ.get('MYSQLPASSWORD', ''),
+        database=os.environ.get('MYSQLDATABASE', 'findit_db'),
+        port=int(os.environ.get('MYSQLPORT', 3306)),
         cursorclass=pymysql.cursors.DictCursor
     )
 
@@ -855,5 +858,11 @@ def upload_profile_pic():
 
 
 # ══════════════════════════════════════════════════════════════
+# FIND THIS:
 if __name__ == '__main__':
     app.run(debug=True)
+
+# REPLACE WITH THIS:
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)

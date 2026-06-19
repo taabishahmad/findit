@@ -8,23 +8,7 @@
 ## STEP 2: Install packages
     pip install -r requirements.txt
 
-## STEP 3: Configure Email in app.py
-Line 20-21 — add your Gmail + App Password:
-    MAIL_USERNAME = 'your@gmail.com'
-    MAIL_PASSWORD = 'xxxx xxxx xxxx xxxx'
 
-How to get Gmail App Password:
-    myaccount.google.com → Security → App Passwords → Mail
-
-## STEP 4: AI Chatbot (optional but recommended)
-Get FREE key at: https://platform.openai.com/api-keys
-Line 25 in app.py:
-    OPENAI_API_KEY = 'sk-...'
-Without key: chatbot uses smart rule-based fallback.
-
-## STEP 5: Run
-    python app.py
-Open: http://127.0.0.1:5000
 
 ## Admin Panel
 URL:      http://127.0.0.1:5000/admin

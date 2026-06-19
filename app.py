@@ -9,7 +9,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import urllib.request, urllib.parse
-
+from dotenv import load_dotenv
+load_dotenv()
 # ══════════════════════════════════════════════════════════════
 #  APP CONFIG
 # ══════════════════════════════════════════════════════════════
@@ -30,8 +31,8 @@ MAIL_USERNAME = 'tabish.bscs4969@student.iiu.edu.pk'
 MAIL_PASSWORD = 'kbnp onbn ffsa phyy'
 MAIL_FROM     = 'FindIt <tabish.bscs4969@student.iiu.edu.pk>'
 
-# ── Groq AI config (free: https://console.groq.com) ─
-OPENAI_API_KEY = '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'
+
+OPENAI_API_KEY = 'API'
 
 # ══════════════════════════════════════════════════════════════
 #  DATABASE

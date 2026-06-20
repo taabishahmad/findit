@@ -1,6 +1,6 @@
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify)
-import pymysql, os, re, csv, random, string, json
+import pymysql, os, re, csv, random, string, json, threading
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
@@ -11,28 +11,26 @@ from email.mime.multipart import MIMEMultipart
 import urllib.request, urllib.parse
 from dotenv import load_dotenv
 load_dotenv()
+
 # ══════════════════════════════════════════════════════════════
 #  APP CONFIG
 # ══════════════════════════════════════════════════════════════
 app = Flask(__name__)
 app.secret_key = 'findit_v2_ultra_secret_2026_iiui'
 
-# ── Upload config ──────────────────────────────────────────────
 UPLOAD_FOLDER      = os.path.join('static', 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 app.config['UPLOAD_FOLDER']      = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024   # 5 MB
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)  # create uploads dir if missing
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ── Email config  (Gmail SMTP — fill your credentials) ────────
 MAIL_SERVER   = 'smtp.gmail.com'
 MAIL_PORT     = 587
-MAIL_USERNAME = 'tabish.bscs4969@student.iiu.edu.pk'
-MAIL_PASSWORD = 'kbnp onbn ffsa phyy'
-MAIL_FROM     = 'FindIt <tabish.bscs4969@student.iiu.edu.pk>'
+MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu.pk')
+MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'kbnp onbn ffsa phyy')
+MAIL_FROM     = f'FindIt <{MAIL_USERNAME}>'
 
-
-OPENAI_API_KEY = 'API'
+OPENAI_API_KEY = os.environ.get('GROQ_API_KEY', 'YOUR_GROQ_KEY')
 
 # ══════════════════════════════════════════════════════════════
 #  DATABASE
@@ -46,6 +44,7 @@ def get_db():
         port=int(os.environ.get('MYSQLPORT', 3306)),
         cursorclass=pymysql.cursors.DictCursor
     )
+
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -76,25 +75,14 @@ def generate_otp(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
 def is_valid_email(email):
-    """Standard email format check."""
     pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
     return bool(re.match(pattern, email.strip()))
 
 def is_iiui_email(email):
-    """
-    Validate IIUI student email format:
-    firstname.DEGREE+REGNUM@student.iiu.edu.pk
-    e.g. tabish.bscs4969@student.iiu.edu.pk
-    - firstname: letters only
-    - degree: letters only (bscs, bba, bsee etc.)
-    - regnum: 1-5 digits
-    - domain: must be @student.iiu.edu.pk
-    """
     pattern = r'^[a-zA-Z]+\.[a-zA-Z]+[0-9]{1,5}@student\.iiu\.edu\.pk$'
     return bool(re.match(pattern, email.strip().lower()))
 
 def is_valid_phone(phone):
-    # Accept formats: 03XX-XXXXXXX, 03XXXXXXXXX, +923XXXXXXXXX
     cleaned = re.sub(r'[\s\-]', '', phone)
     return bool(re.match(r'^(\+92|0)3[0-9]{9}$', cleaned))
 
@@ -103,7 +91,6 @@ def send_otp_email(to_email, otp, purpose='verify'):
         subject = "FindIt – Your OTP Code"
         if purpose == 'reset':
             subject = "FindIt – Password Reset OTP"
-
         html_body = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;background:#f8fafa;
                     border-radius:14px;overflow:hidden;border:1px solid #d0e8e8;">
@@ -136,7 +123,6 @@ def send_otp_email(to_email, otp, purpose='verify'):
         msg['From']    = MAIL_FROM
         msg['To']      = to_email
         msg.attach(MIMEText(html_body, 'html'))
-
         with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
             server.ehlo()
             server.starttls()
@@ -147,12 +133,17 @@ def send_otp_email(to_email, otp, purpose='verify'):
         print(f"Email error: {e}")
         return False
 
+def send_email_async(to_email, otp, purpose):
+    """Send email in background thread so registration doesn't hang."""
+    thread = threading.Thread(target=send_otp_email, args=(to_email, otp, purpose))
+    thread.daemon = True
+    thread.start()
+
 def store_otp(email, purpose='verify'):
     otp    = generate_otp()
     expiry = datetime.now() + timedelta(minutes=10)
     db  = get_db()
     cur = db.cursor()
-    # Invalidate old OTPs
     cur.execute("UPDATE otp_tokens SET used=1 WHERE email=%s AND purpose=%s", (email, purpose))
     cur.execute(
         "INSERT INTO otp_tokens (email, otp, purpose, expires_at) VALUES (%s,%s,%s,%s)",
@@ -180,22 +171,18 @@ def verify_otp_code(email, code, purpose='verify'):
     return bool(row)
 
 # ══════════════════════════════════════════════════════════════
-#  AI CHATBOT HELPER
+#  AI HELPERS
 # ══════════════════════════════════════════════════════════════
 def load_items_context():
-    """Load items.csv as context string for the AI."""
     ctx = []
     csv_path = os.path.join('data', 'items.csv')
     if os.path.exists(csv_path):
         with open(csv_path, newline='', encoding='utf-8') as f:
             for row in csv.DictReader(f):
-                ctx.append(
-                    f"- {row['item']} ({row['category']}): {row['tips']}"
-                )
+                ctx.append(f"- {row['item']} ({row['category']}): {row['tips']}")
     return '\n'.join(ctx)
 
 def get_active_posts_summary():
-    """Summarise live DB posts for AI context."""
     try:
         db  = get_db()
         cur = db.cursor()
@@ -250,8 +237,6 @@ def call_anthropic(messages_list, system_prompt):
 # ══════════════════════════════════════════════════════════════
 #  AUTH ROUTES
 # ══════════════════════════════════════════════════════════════
-
-# ── Register ──────────────────────────────────────────────────
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if session.get('user_id'):
@@ -264,7 +249,6 @@ def register():
         password = request.form.get('password', '')
         confirm  = request.form.get('confirm_password', '')
 
-        # ── Validation ────────────────────────────────────────
         errors = []
         if len(name) < 2:
             errors.append('Name must be at least 2 characters.')
@@ -286,10 +270,8 @@ def register():
         if errors:
             for e in errors:
                 flash(e, 'error')
-            return render_template('register.html',
-                                   name=name, email=email, phone=phone)
+            return render_template('register.html', name=name, email=email, phone=phone)
 
-        # ── Check email uniqueness ────────────────────────────
         db  = get_db()
         cur = db.cursor()
         cur.execute("SELECT id FROM users WHERE email=%s", (email,))
@@ -298,33 +280,31 @@ def register():
             flash('An account with this email already exists.', 'error')
             return render_template('register.html', name=name, email=email, phone=phone)
 
-        # ── Hash password & insert ────────────────────────────
         pw_hash = generate_password_hash(password)
         cur.execute(
-            "INSERT INTO users (name, email, phone, password_hash, is_verified) "
-            "VALUES (%s,%s,%s,%s,0)",
+            "INSERT INTO users (name, email, phone, password_hash, is_verified) VALUES (%s,%s,%s,%s,0)",
             (name, email, phone, pw_hash)
         )
         db.commit()
         db.close()
 
-        # ── Send OTP ──────────────────────────────────────────
+        # Generate OTP and store it
         otp = store_otp(email, 'verify')
-        ok  = send_otp_email(email, otp, 'verify')
 
+        # Set session BEFORE sending email (so redirect works instantly)
         session['pending_verify_email'] = email
-        if ok:
-            flash('Account created! Check your email for the OTP to verify your account.', 'success')
-        else:
-            flash('Account created! Email delivery failed — use OTP shown on this page for demo.', 'info')
-            flash(f'DEMO OTP: {otp}', 'info')   # Remove in production
+
+        # Show OTP immediately as flash so user doesn't wait
+        flash(f'Account created! Your OTP is: {otp} — Also check your email.', 'success')
+
+        # Send email in background (non-blocking — won't cause page to hang)
+        send_email_async(email, otp, 'verify')
 
         return redirect(url_for('verify_email'))
 
     return render_template('register.html')
 
 
-# ── Verify Email OTP ─────────────────────────────────────────
 @app.route('/verify-email', methods=['GET', 'POST'])
 def verify_email():
     email = session.get('pending_verify_email')
@@ -354,22 +334,17 @@ def verify_email():
     return render_template('verify_email.html', email=email)
 
 
-# ── Resend OTP ────────────────────────────────────────────────
 @app.route('/resend-otp')
 def resend_otp():
     email = session.get('pending_verify_email')
     if not email:
         return redirect(url_for('register'))
     otp = store_otp(email, 'verify')
-    ok  = send_otp_email(email, otp, 'verify')
-    if ok:
-        flash('New OTP sent to your email.', 'success')
-    else:
-        flash(f'Email failed. DEMO OTP: {otp}', 'info')
+    flash(f'New OTP: {otp} — Also check your email.', 'info')
+    send_email_async(email, otp, 'verify')
     return redirect(url_for('verify_email'))
 
 
-# ── Login ─────────────────────────────────────────────────────
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_id'):
@@ -396,8 +371,8 @@ def login():
         if not user['is_verified']:
             session['pending_verify_email'] = email
             otp = store_otp(email, 'verify')
-            send_otp_email(email, otp, 'verify')
-            flash('Please verify your email first. A new OTP has been sent.', 'info')
+            flash(f'Please verify email. OTP: {otp}', 'info')
+            send_email_async(email, otp, 'verify')
             return redirect(url_for('verify_email'))
 
         session['user_id']    = user['id']
@@ -410,7 +385,6 @@ def login():
     return render_template('login.html')
 
 
-# ── Forgot Password ───────────────────────────────────────────
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     if request.method == 'POST':
@@ -420,19 +394,17 @@ def forgot_password():
         cur.execute("SELECT id FROM users WHERE email=%s", (email,))
         user = cur.fetchone()
         db.close()
-        # Always show success (don't reveal if email exists)
         if user:
             otp = store_otp(email, 'reset')
-            ok  = send_otp_email(email, otp, 'reset')
-            if not ok:
-                flash(f'Email failed. DEMO OTP: {otp}', 'info')
+            flash(f'OTP sent! Your OTP is: {otp}', 'info')
+            send_email_async(email, otp, 'reset')
+        else:
+            flash('If this email is registered, an OTP has been sent.', 'success')
         session['pending_reset_email'] = email
-        flash('If this email is registered, an OTP has been sent.', 'success')
         return redirect(url_for('reset_password'))
     return render_template('forgot_password.html')
 
 
-# ── Reset Password ────────────────────────────────────────────
 @app.route('/reset-password', methods=['GET', 'POST'])
 def reset_password():
     email = session.get('pending_reset_email')
@@ -457,7 +429,8 @@ def reset_password():
             errors.append('Passwords do not match.')
 
         if errors:
-            for e in errors: flash(e, 'error')
+            for e in errors:
+                flash(e, 'error')
             return render_template('reset_password.html', email=email)
 
         if not verify_otp_code(email, code, 'reset'):
@@ -477,7 +450,6 @@ def reset_password():
     return render_template('reset_password.html', email=email)
 
 
-# ── Logout ────────────────────────────────────────────────────
 @app.route('/logout')
 def logout():
     session.pop('user_id',    None)
@@ -494,29 +466,22 @@ def logout():
 def index():
     search  = request.args.get('search', '').strip()
     filter_ = request.args.get('filter', 'all')
-
     db  = get_db()
     cur = db.cursor()
-
     query  = "SELECT p.*, u.name AS poster_name FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.status != 'resolved'"
     params = []
-
     if filter_ in ('lost', 'found'):
         query += " AND p.type = %s"
         params.append(filter_)
-
     if search:
         query += " AND (p.title LIKE %s OR p.description LIKE %s OR p.location LIKE %s)"
         like = f'%{search}%'
         params.extend([like, like, like])
-
     query += " ORDER BY p.created_at DESC"
     cur.execute(query, params)
     posts = cur.fetchall()
     db.close()
-
-    return render_template('index.html', posts=posts,
-                           search=search, filter=filter_)
+    return render_template('index.html', posts=posts, search=search, filter=filter_)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -532,84 +497,63 @@ def post_item():
         item_type   = request.form['type']
         contact     = request.form['contact'].strip()
         date_lost   = request.form['date_lost'] or None
-
-        # Validate phone
         if not is_valid_phone(contact):
             flash('Contact must be a valid Pakistani number (e.g. 03001234567).', 'error')
             return render_template('post.html', form=request.form)
-
         photo_name = None
         file = request.files.get('photo')
         if file and file.filename and allowed_file(file.filename):
             photo_name = secure_filename(file.filename)
             file.save(os.path.join(app.config['UPLOAD_FOLDER'], photo_name))
-
         db  = get_db()
         cur = db.cursor()
         cur.execute(
-            """INSERT INTO posts
-               (user_id, title, description, location, type, contact, date_lost, photo, status)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')""",
-            (session['user_id'], title, description, location,
-             item_type, contact, date_lost, photo_name)
+            "INSERT INTO posts (user_id, title, description, location, type, contact, date_lost, photo, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'active')",
+            (session['user_id'], title, description, location, item_type, contact, date_lost, photo_name)
         )
         db.commit()
         db.close()
-
         flash('Your post has been submitted successfully!', 'success')
         return redirect(url_for('index'))
-
     return render_template('post.html', form={})
 
 
-# ── View single post ──────────────────────────────────────────
 @app.route('/post/<int:post_id>')
 def view_post(post_id):
     db  = get_db()
     cur = db.cursor()
     cur.execute(
-        "SELECT p.*, u.name AS poster_name, u.email AS poster_email "
-        "FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.id=%s",
+        "SELECT p.*, u.name AS poster_name, u.email AS poster_email FROM posts p LEFT JOIN users u ON p.user_id=u.id WHERE p.id=%s",
         (post_id,)
     )
     post = cur.fetchone()
     db.close()
-
     if not post:
         flash('Post not found.', 'error')
         return redirect(url_for('index'))
-
-    # Can this user resolve?
     can_resolve = (
         session.get('admin') or
         (session.get('user_id') and session['user_id'] == post['user_id'])
     )
-
     return render_template('view_post.html', post=post, can_resolve=can_resolve)
 
 
-# ── Resolve post (owner or admin only) ───────────────────────
 @app.route('/resolve/<int:post_id>')
 def resolve_post(post_id):
     db  = get_db()
     cur = db.cursor()
     cur.execute("SELECT user_id FROM posts WHERE id=%s", (post_id,))
     row = cur.fetchone()
-
     if not row:
         db.close()
         flash('Post not found.', 'error')
         return redirect(url_for('index'))
-
-    # Only owner or admin
     is_owner = session.get('user_id') and session['user_id'] == row['user_id']
     is_admin  = session.get('admin')
-
     if not (is_owner or is_admin):
         db.close()
         flash('You are not authorised to resolve this post.', 'error')
         return redirect(url_for('view_post', post_id=post_id))
-
     cur.execute("UPDATE posts SET status='resolved' WHERE id=%s", (post_id,))
     db.commit()
     db.close()
@@ -618,14 +562,13 @@ def resolve_post(post_id):
 
 
 # ══════════════════════════════════════════════════════════════
-#  AI CHATBOT  (API endpoint)
+#  AI CHATBOT
 # ══════════════════════════════════════════════════════════════
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    data        = request.get_json(silent=True) or {}
-    user_msg    = data.get('message', '').strip()
-    history     = data.get('history', [])   # [{role, content}, ...]
-
+    data     = request.get_json(silent=True) or {}
+    user_msg = data.get('message', '').strip()
+    history  = data.get('history', [])
     if not user_msg:
         return jsonify({'error': 'Empty message'}), 400
 
@@ -655,7 +598,7 @@ STRICT RULES:
 """
 
     messages = []
-    for h in history[-8:]:  # Last 8 messages for context
+    for h in history[-8:]:
         if h.get('role') in ('user', 'assistant') and h.get('content'):
             messages.append({'role': h['role'], 'content': h['content']})
     messages.append({'role': 'user', 'content': user_msg})
@@ -663,39 +606,29 @@ STRICT RULES:
     reply = call_anthropic(messages, system_prompt)
 
     if not reply:
-        # Smart fallback — only used when Groq API is unavailable
         ul = user_msg.lower()
-        # Check message context more carefully
-        is_lost_context  = any(w in ul for w in ['i lost', 'i have lost', 'missing', "can't find", 'i misplaced'])
-        is_found_context = any(w in ul for w in ['i found', 'i have found', 'picked up', 'someone found'])
-        is_how_context   = any(w in ul for w in ['how to', 'how do', 'how can', 'how post', 'how submit', 'guide me'])
-        is_search_context= any(w in ul for w in ['who found', 'who lost', 'has anyone', 'did anyone', 'can you tell', 'tell me who'])
-
+        is_lost_context   = any(w in ul for w in ['i lost', 'i have lost', 'missing', "can't find", 'i misplaced'])
+        is_found_context  = any(w in ul for w in ['i found', 'i have found', 'picked up', 'someone found'])
+        is_how_context    = any(w in ul for w in ['how to', 'how do', 'how can', 'how post', 'how submit', 'guide me'])
+        is_search_context = any(w in ul for w in ['who found', 'who lost', 'has anyone', 'did anyone', 'can you tell', 'tell me who'])
         if is_search_context:
-            reply = f"I can see active posts on the board right now. Check the main board and use the search bar to look for your item by name or location. If someone posted it, it will appear there. You can also post your lost item so finders can contact you directly!"
+            reply = "Check the main board and use the search bar to look for your item by name or location. If someone posted it, it will appear there. You can also post your lost item so finders can contact you directly!"
         elif is_lost_context:
-            reply = "I'm sorry to hear that! Here's what to do: 1) Post your lost item on FindIt right now with a clear description and photo. 2) Check the security office — they hold found items daily. 3) Search the board to see if anyone has already posted it as found."
+            reply = "Post your lost item on FindIt right now with a clear description and photo. Also check the security office — they hold found items daily. Search the board too to see if anyone already posted it as found."
         elif is_found_context:
-            reply = "That's great that you want to return it! Post a 'Found' item on FindIt with a photo. Include where you found it and your contact number. The owner will see it and can WhatsApp or SMS you directly from the post."
+            reply = "Post a 'Found' item on FindIt with a photo. Include where you found it and your contact number. The owner will see it and can WhatsApp or SMS you directly from the post."
         elif is_how_context:
-            reply = "To post on FindIt: 1) Register with your IIUI student email. 2) Verify your email with the OTP. 3) Click '+ Post Item' in the navbar. 4) Choose Lost or Found, fill in details and add a photo. 5) Submit — your post appears immediately on the board!"
+            reply = "To post on FindIt: 1) Register with your IIUI student email. 2) Verify with OTP. 3) Click '+ Post Item'. 4) Choose Lost or Found, fill details, add photo. 5) Submit — appears immediately!"
         else:
-            reply = "Hello! I'm FindIt Assistant, powered by Groq AI. I can help you with lost or found items at IIUI. Tell me what happened — did you lose something or find something? I can guide you through posting it on the board."
+            reply = "Hello! I'm FindIt Assistant powered by Groq AI. Tell me what you lost or found and I'll help you right away!"
 
-    # Save to DB if user is logged in
     if session.get('user_id'):
         try:
             sid = data.get('session_id', 'anon')
             db  = get_db()
             cur = db.cursor()
-            cur.execute(
-                "INSERT INTO chat_history (user_id, session_id, role, message) VALUES (%s,%s,'user',%s)",
-                (session['user_id'], sid, user_msg)
-            )
-            cur.execute(
-                "INSERT INTO chat_history (user_id, session_id, role, message) VALUES (%s,%s,'assistant',%s)",
-                (session['user_id'], sid, reply)
-            )
+            cur.execute("INSERT INTO chat_history (user_id, session_id, role, message) VALUES (%s,%s,'user',%s)", (session['user_id'], sid, user_msg))
+            cur.execute("INSERT INTO chat_history (user_id, session_id, role, message) VALUES (%s,%s,'assistant',%s)", (session['user_id'], sid, reply))
             db.commit()
             db.close()
         except:
@@ -704,20 +637,15 @@ STRICT RULES:
     return jsonify({'reply': reply})
 
 
-# ══════════════════════════════════════════════════════════════
-#  AI ITEM SUGGESTION  (helper for post form)
-# ══════════════════════════════════════════════════════════════
 @app.route('/api/suggest', methods=['POST'])
 @login_required
 def ai_suggest():
-    data    = request.get_json(silent=True) or {}
-    title   = data.get('title', '').strip()
-    desc    = data.get('description', '').strip()
-    itype   = data.get('type', 'lost')
-
+    data  = request.get_json(silent=True) or {}
+    title = data.get('title', '').strip()
+    desc  = data.get('description', '').strip()
+    itype = data.get('type', 'lost')
     if not title:
         return jsonify({'suggestion': ''})
-
     system = "You are a helpful assistant for a Lost & Found board. Given an item name and description, suggest a better, more detailed description that will help someone identify the item. Keep it under 60 words. Be specific about colour, brand, size, and identifying features."
     messages = [{'role': 'user', 'content': f"Item: {title}\nType: {itype}\nDescription: {desc}\n\nSuggest an improved description:"}]
     reply = call_anthropic(messages, system)
@@ -725,13 +653,15 @@ def ai_suggest():
 
 
 # ══════════════════════════════════════════════════════════════
-#  ADMIN ROUTES
+#  ADMIN
 # ══════════════════════════════════════════════════════════════
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        if (request.form.get('username') == 'tabishahmadaiengineer@gmail.com' and
-                request.form.get('password') == '@Tabish321'):
+        admin_email = os.environ.get('ADMIN_EMAIL', 'tabishahmadaiengineer@gmail.com')
+        admin_pass  = os.environ.get('ADMIN_PASSWORD', '@Tabish321')
+        if (request.form.get('username') == admin_email and
+                request.form.get('password') == admin_pass):
             session['admin'] = True
             return redirect(url_for('admin_dashboard'))
         flash('Invalid credentials.', 'error')
@@ -747,12 +677,8 @@ def admin_logout():
 def admin_dashboard():
     db  = get_db()
     cur = db.cursor()
-
-    cur.execute("SELECT p.*, u.name AS poster_name, u.email AS poster_email "
-                "FROM posts p LEFT JOIN users u ON p.user_id=u.id "
-                "ORDER BY p.created_at DESC")
+    cur.execute("SELECT p.*, u.name AS poster_name, u.email AS poster_email FROM posts p LEFT JOIN users u ON p.user_id=u.id ORDER BY p.created_at DESC")
     posts = cur.fetchall()
-
     cur.execute("SELECT COUNT(*) AS c FROM posts WHERE status='active'")
     active = cur.fetchone()['c']
     cur.execute("SELECT COUNT(*) AS c FROM posts WHERE status='resolved'")
@@ -765,16 +691,11 @@ def admin_dashboard():
     users_v = cur.fetchone()['c']
     cur.execute("SELECT COUNT(*) AS c FROM users")
     users_t = cur.fetchone()['c']
-
     db.close()
-
     stats = {
-        'active':    active,
-        'resolved':  resolved,
-        'lost':      lost,
-        'found':     found,
-        'users':     users_v,      # verified users — matches {{ stats.users }} in template
-        'all_users': users_t       # total registered — matches {{ stats.all_users }}
+        'active': active, 'resolved': resolved,
+        'lost': lost, 'found': found,
+        'users': users_v, 'all_users': users_t
     }
     return render_template('admin.html', posts=posts, stats=stats)
 
@@ -816,6 +737,7 @@ def admin_delete_user(user_id):
     flash('User deleted.', 'success')
     return redirect(url_for('admin_users'))
 
+
 # ══════════════════════════════════════════════════════════════
 #  USER PROFILE
 # ══════════════════════════════════════════════════════════════
@@ -826,8 +748,7 @@ def profile():
     cur = db.cursor()
     cur.execute("SELECT * FROM users WHERE id=%s", (session['user_id'],))
     user = cur.fetchone()
-    cur.execute("SELECT * FROM posts WHERE user_id=%s ORDER BY created_at DESC",
-                (session['user_id'],))
+    cur.execute("SELECT * FROM posts WHERE user_id=%s ORDER BY created_at DESC", (session['user_id'],))
     my_posts = cur.fetchall()
     db.close()
     return render_template('profile.html', user=user, my_posts=my_posts)
@@ -842,23 +763,20 @@ def upload_profile_pic():
     if not allowed_file(file.filename):
         flash('Only image files allowed (JPG, PNG, GIF, WEBP).', 'error')
         return redirect(url_for('profile'))
-    # Save with user-specific name to avoid collisions
     ext = file.filename.rsplit('.', 1)[1].lower()
     pic_name = f"avatar_{session['user_id']}.{ext}"
     file.save(os.path.join(app.config['UPLOAD_FOLDER'], pic_name))
     db  = get_db()
     cur = db.cursor()
-    cur.execute("UPDATE users SET profile_pic=%s WHERE id=%s",
-                (pic_name, session['user_id']))
+    cur.execute("UPDATE users SET profile_pic=%s WHERE id=%s", (pic_name, session['user_id']))
     db.commit()
     db.close()
-    session['user_pic'] = pic_name   # refresh navbar pic immediately
+    session['user_pic'] = pic_name
     flash('Profile picture updated!', 'success')
     return redirect(url_for('profile'))
 
 
 # ══════════════════════════════════════════════════════════════
-# FIND THIS:
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(debug=False, host='0.0.0.0', port=port)

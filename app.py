@@ -30,7 +30,7 @@ MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu
 MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'kbnp onbn ffsa phyy')
 MAIL_FROM     = f'FindIt <{MAIL_USERNAME}>'
 
-OPENAI_API_KEY = os.environ.get('GROQ_API_KEY', 'YOUR_GROQ_KEY')
+OPENAI_API_KEY = os.environ.get('GROQ_API_KEY', '')
 
 # ══════════════════════════════════════════════════════════════
 #  DATABASE
@@ -134,7 +134,7 @@ def send_otp_email(to_email, otp, purpose='verify'):
         return False
 
 def send_email_async(to_email, otp, purpose):
-    """Send email in background thread so registration doesn't hang."""
+    """Send email in background thread so page does not hang."""
     thread = threading.Thread(target=send_otp_email, args=(to_email, otp, purpose))
     thread.daemon = True
     thread.start()
@@ -234,6 +234,74 @@ def call_anthropic(messages_list, system_prompt):
         print(f"[Groq Error]: {type(e).__name__}: {e}")
         return None
 
+def smart_fallback(user_msg, posts_ctx):
+    """Smart fallback that actually reads the board data and gives useful answers."""
+    ul = user_msg.lower().strip()
+
+    # Extract item keywords from the message
+    common_items = ['wallet', 'phone', 'mobile', 'laptop', 'bag', 'keys', 'id', 'card',
+                    'earphone', 'charger', 'bottle', 'glasses', 'watch', 'jacket', 'shoes']
+    mentioned_item = next((item for item in common_items if item in ul), None)
+
+    # Location keywords
+    locations = ['cafe', 'cafeteria', 'library', 'block', 'parking', 'mosque',
+                 'class', 'classroom', 'lab', 'gate', 'hostel', 'gym']
+    mentioned_loc = next((loc for loc in locations if loc in ul), None)
+
+    # Check if user is asking about something on the board
+    is_question = any(w in ul for w in ['did you', 'did anyone', 'has anyone', 'who found',
+                                         'who lost', 'can you see', 'do you see', 'see something',
+                                         'is there', 'any post', 'check'])
+
+    # Check if user is reporting they lost something
+    is_lost = any(w in ul for w in ['i lost', 'i have lost', 'lost my', 'missing',
+                                     "can't find", 'i misplaced', 'dropped'])
+
+    # Check if user found something
+    is_found = any(w in ul for w in ['i found', 'i have found', 'found a', 'picked up',
+                                      'i put', 'i have put', 'i posted', 'i placed'])
+
+    # Check how to use
+    is_how = any(w in ul for w in ['how', 'guide', 'help me', 'what should', 'what do'])
+
+    if is_question and mentioned_item:
+        # Check if item is in board posts
+        if mentioned_item.lower() in posts_ctx.lower():
+            return (f"Yes! I can see a post about a {mentioned_item} on the FindIt board right now. "
+                    f"Go to the main board and search for '{mentioned_item}' to see the full details "
+                    f"and contact the poster directly via WhatsApp.")
+        else:
+            return (f"I don't see any current post about a {mentioned_item} on the board. "
+                    f"You should post your {mentioned_item} as lost/found so others can see it. "
+                    f"Also check the security office — they hold found items daily.")
+
+    elif is_found:
+        item_text = f"the {mentioned_item}" if mentioned_item else "the item"
+        loc_text = f"near the {mentioned_loc}" if mentioned_loc else "on campus"
+        return (f"Great that you want to return {item_text}! Post it as 'Found' on FindIt — "
+                f"click '+ Post Item', select Found, describe where you found it {loc_text}, "
+                f"and add your contact number. The owner will WhatsApp you directly.")
+
+    elif is_lost:
+        item_text = f"your {mentioned_item}" if mentioned_item else "your item"
+        return (f"Post {item_text} on FindIt immediately with a photo and description. "
+                f"Also check the board — someone may have already posted it as found. "
+                f"Visit the security office too as they collect found items daily.")
+
+    elif mentioned_item and not is_question:
+        return (f"Are you asking about a {mentioned_item}? Let me know if you lost it or found it "
+                f"and I'll guide you. You can also search '{mentioned_item}' on the board to see "
+                f"if anyone has posted about it.")
+
+    elif is_how:
+        return ("To use FindIt: Register with your IIUI email, verify via OTP, then click "
+                "'+ Post Item'. Choose Lost or Found, fill in details with a photo, and submit. "
+                "Others can contact you directly via WhatsApp from your post!")
+
+    else:
+        return ("I'm FindIt Assistant — I help with lost and found items at IIUI. "
+                "Tell me what you lost or found, or ask me to check the board for a specific item!")
+
 # ══════════════════════════════════════════════════════════════
 #  AUTH ROUTES
 # ══════════════════════════════════════════════════════════════
@@ -288,17 +356,13 @@ def register():
         db.commit()
         db.close()
 
-        # Generate OTP and store it
         otp = store_otp(email, 'verify')
-
-        # Set session before redirect
         session['pending_verify_email'] = email
 
-        # Send email in background thread (non-blocking)
+        # Send email in background — page redirects instantly
         send_email_async(email, otp, 'verify')
 
         flash('Account created! A verification OTP has been sent to your email. Please check your inbox.', 'success')
-
         return redirect(url_for('verify_email'))
 
     return render_template('register.html')
@@ -339,8 +403,8 @@ def resend_otp():
     if not email:
         return redirect(url_for('register'))
     otp = store_otp(email, 'verify')
-    flash(f'New OTP: {otp} — Also check your email.', 'info')
     send_email_async(email, otp, 'verify')
+    flash('A new OTP has been sent to your email.', 'success')
     return redirect(url_for('verify_email'))
 
 
@@ -370,8 +434,8 @@ def login():
         if not user['is_verified']:
             session['pending_verify_email'] = email
             otp = store_otp(email, 'verify')
-            flash(f'Please verify email. OTP: {otp}', 'info')
             send_email_async(email, otp, 'verify')
+            flash('Please verify your email first. A new OTP has been sent to your inbox.', 'info')
             return redirect(url_for('verify_email'))
 
         session['user_id']    = user['id']
@@ -395,11 +459,9 @@ def forgot_password():
         db.close()
         if user:
             otp = store_otp(email, 'reset')
-            flash(f'OTP sent! Your OTP is: {otp}', 'info')
             send_email_async(email, otp, 'reset')
-        else:
-            flash('If this email is registered, an OTP has been sent.', 'success')
         session['pending_reset_email'] = email
+        flash('If this email is registered, a password reset OTP has been sent to your inbox.', 'success')
         return redirect(url_for('reset_password'))
     return render_template('forgot_password.html')
 
@@ -574,52 +636,40 @@ def chat():
     items_ctx = load_items_context()
     posts_ctx = get_active_posts_summary()
 
-    system_prompt = f"""You are FindIt Assistant — an AI helper for FindIt, a Community Lost & Found Board at IIUI (International Islamic University Islamabad), Pakistan.
+    system_prompt = f"""You are FindIt Assistant — a smart AI helper for FindIt, a Community Lost & Found Board at IIUI (International Islamic University Islamabad), Pakistan.
 
-CURRENT ACTIVE POSTS ON THE BOARD:
+LIVE BOARD DATA — CURRENT ACTIVE POSTS:
 {posts_ctx}
 
-ITEM TIPS BY CATEGORY:
+ITEM ADVICE BY CATEGORY:
 {items_ctx}
 
-YOUR ROLE:
-- Answer questions about specific lost/found items using the board data above
-- If a user asks "who found my wallet" or "has anyone found X", check the active posts above and tell them
-- Help users describe items, suggest where to look, guide them to post on FindIt
-- Be warm, direct, and genuinely helpful like a friend
-
-STRICT RULES:
-- Reply in 2-4 short sentences maximum — never write long paragraphs
-- If the item appears in the active posts above, mention it specifically
-- Never say "I'm sorry to hear that" as your first sentence — be action-oriented
+YOUR PERSONALITY & RULES:
+- You are helpful, friendly, and direct like a knowledgeable friend
+- Always give a DIFFERENT, CONTEXTUAL response based on what the user actually said
+- Read the conversation history carefully and respond to what was JUST said
+- If someone says they posted something, acknowledge it and tell them what to expect next
+- If someone mentions a specific item (wallet, phone etc), reference that specific item in your reply
+- If someone mentions a location (cafe, library etc), reference that location
+- Check the LIVE BOARD DATA above — if their item appears there, tell them specifically
+- Keep replies to 2-3 sentences — short and helpful
+- Never repeat the same response twice in a conversation
+- Never start with "Hello! I'm FindIt Assistant" after the first message
 - If user writes in Urdu, reply in Urdu
-- Never make up contact numbers or personal details
+- Do NOT make up phone numbers or contact details
 """
 
     messages = []
-    for h in history[-8:]:
+    for h in history[-10:]:
         if h.get('role') in ('user', 'assistant') and h.get('content'):
             messages.append({'role': h['role'], 'content': h['content']})
     messages.append({'role': 'user', 'content': user_msg})
 
     reply = call_anthropic(messages, system_prompt)
 
+    # Only use fallback if Groq completely fails
     if not reply:
-        ul = user_msg.lower()
-        is_lost_context   = any(w in ul for w in ['i lost', 'i have lost', 'missing', "can't find", 'i misplaced'])
-        is_found_context  = any(w in ul for w in ['i found', 'i have found', 'picked up', 'someone found'])
-        is_how_context    = any(w in ul for w in ['how to', 'how do', 'how can', 'how post', 'how submit', 'guide me'])
-        is_search_context = any(w in ul for w in ['who found', 'who lost', 'has anyone', 'did anyone', 'can you tell', 'tell me who'])
-        if is_search_context:
-            reply = "Check the main board and use the search bar to look for your item by name or location. If someone posted it, it will appear there. You can also post your lost item so finders can contact you directly!"
-        elif is_lost_context:
-            reply = "Post your lost item on FindIt right now with a clear description and photo. Also check the security office — they hold found items daily. Search the board too to see if anyone already posted it as found."
-        elif is_found_context:
-            reply = "Post a 'Found' item on FindIt with a photo. Include where you found it and your contact number. The owner will see it and can WhatsApp or SMS you directly from the post."
-        elif is_how_context:
-            reply = "To post on FindIt: 1) Register with your IIUI student email. 2) Verify with OTP. 3) Click '+ Post Item'. 4) Choose Lost or Found, fill details, add photo. 5) Submit — appears immediately!"
-        else:
-            reply = "Hello! I'm FindIt Assistant powered by Groq AI. Tell me what you lost or found and I'll help you right away!"
+        reply = smart_fallback(user_msg, posts_ctx)
 
     if session.get('user_id'):
         try:

@@ -1,6 +1,6 @@
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify)
-import pymysql, os, re, csv, random, string, json, threading
+import pymysql, os, re, csv, random, string, json
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
@@ -87,10 +87,15 @@ def is_valid_phone(phone):
     return bool(re.match(r'^(\+92|0)3[0-9]{9}$', cleaned))
 
 def send_otp_email(to_email, otp, purpose='verify'):
+    """
+    Sends OTP email synchronously.
+    Returns True if sent successfully, False if failed.
+    """
     try:
         subject = "FindIt – Your OTP Code"
         if purpose == 'reset':
             subject = "FindIt – Password Reset OTP"
+
         html_body = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;background:#f8fafa;
                     border-radius:14px;overflow:hidden;border:1px solid #d0e8e8;">
@@ -123,21 +128,17 @@ def send_otp_email(to_email, otp, purpose='verify'):
         msg['From']    = MAIL_FROM
         msg['To']      = to_email
         msg.attach(MIMEText(html_body, 'html'))
+
         with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
             server.ehlo()
             server.starttls()
             server.login(MAIL_USERNAME, MAIL_PASSWORD)
             server.sendmail(MAIL_USERNAME, to_email, msg.as_string())
+        print(f"[Email OK] OTP sent to {to_email}")
         return True
     except Exception as e:
-        print(f"Email error: {e}")
+        print(f"[Email FAILED] {e}")
         return False
-
-def send_email_async(to_email, otp, purpose):
-    """Send email in background thread so page does not hang."""
-    thread = threading.Thread(target=send_otp_email, args=(to_email, otp, purpose))
-    thread.daemon = True
-    thread.start()
 
 def store_otp(email, purpose='verify'):
     otp    = generate_otp()
@@ -235,72 +236,55 @@ def call_anthropic(messages_list, system_prompt):
         return None
 
 def smart_fallback(user_msg, posts_ctx):
-    """Smart fallback that actually reads the board data and gives useful answers."""
+    """Smart fallback when Groq API is unavailable."""
     ul = user_msg.lower().strip()
-
-    # Extract item keywords from the message
-    common_items = ['wallet', 'phone', 'mobile', 'laptop', 'bag', 'keys', 'id', 'card',
-                    'earphone', 'charger', 'bottle', 'glasses', 'watch', 'jacket', 'shoes']
-    mentioned_item = next((item for item in common_items if item in ul), None)
-
-    # Location keywords
+    common_items = ['wallet', 'phone', 'mobile', 'laptop', 'bag', 'keys', 'id',
+                    'card', 'earphone', 'charger', 'bottle', 'glasses', 'watch',
+                    'jacket', 'shoes']
     locations = ['cafe', 'cafeteria', 'library', 'block', 'parking', 'mosque',
                  'class', 'classroom', 'lab', 'gate', 'hostel', 'gym']
-    mentioned_loc = next((loc for loc in locations if loc in ul), None)
+    mentioned_item = next((i for i in common_items if i in ul), None)
+    mentioned_loc  = next((l for l in locations if l in ul), None)
 
-    # Check if user is asking about something on the board
     is_question = any(w in ul for w in ['did you', 'did anyone', 'has anyone', 'who found',
                                          'who lost', 'can you see', 'do you see', 'see something',
                                          'is there', 'any post', 'check'])
-
-    # Check if user is reporting they lost something
-    is_lost = any(w in ul for w in ['i lost', 'i have lost', 'lost my', 'missing',
-                                     "can't find", 'i misplaced', 'dropped'])
-
-    # Check if user found something
+    is_lost  = any(w in ul for w in ['i lost', 'i have lost', 'lost my', 'missing',
+                                      "can't find", 'i misplaced', 'dropped'])
     is_found = any(w in ul for w in ['i found', 'i have found', 'found a', 'picked up',
                                       'i put', 'i have put', 'i posted', 'i placed'])
-
-    # Check how to use
-    is_how = any(w in ul for w in ['how', 'guide', 'help me', 'what should', 'what do'])
+    is_how   = any(w in ul for w in ['how', 'guide', 'help me', 'what should', 'what do'])
 
     if is_question and mentioned_item:
-        # Check if item is in board posts
         if mentioned_item.lower() in posts_ctx.lower():
-            return (f"Yes! I can see a post about a {mentioned_item} on the FindIt board right now. "
-                    f"Go to the main board and search for '{mentioned_item}' to see the full details "
+            return (f"Yes! I can see a post about a {mentioned_item} on the FindIt board. "
+                    f"Go to the main board and search '{mentioned_item}' to see full details "
                     f"and contact the poster directly via WhatsApp.")
         else:
-            return (f"I don't see any current post about a {mentioned_item} on the board. "
-                    f"You should post your {mentioned_item} as lost/found so others can see it. "
+            return (f"I don't see a current post about a {mentioned_item} on the board. "
+                    f"Post it as lost/found so others can see it. "
                     f"Also check the security office — they hold found items daily.")
-
     elif is_found:
         item_text = f"the {mentioned_item}" if mentioned_item else "the item"
-        loc_text = f"near the {mentioned_loc}" if mentioned_loc else "on campus"
-        return (f"Great that you want to return {item_text}! Post it as 'Found' on FindIt — "
-                f"click '+ Post Item', select Found, describe where you found it {loc_text}, "
-                f"and add your contact number. The owner will WhatsApp you directly.")
-
+        loc_text  = f"near the {mentioned_loc}" if mentioned_loc else "on campus"
+        return (f"Great! Post {item_text} as 'Found' on FindIt — click '+ Post Item', "
+                f"select Found, describe where you found it {loc_text}, "
+                f"and add your contact. The owner will WhatsApp you directly.")
     elif is_lost:
         item_text = f"your {mentioned_item}" if mentioned_item else "your item"
         return (f"Post {item_text} on FindIt immediately with a photo and description. "
                 f"Also check the board — someone may have already posted it as found. "
-                f"Visit the security office too as they collect found items daily.")
-
-    elif mentioned_item and not is_question:
-        return (f"Are you asking about a {mentioned_item}? Let me know if you lost it or found it "
-                f"and I'll guide you. You can also search '{mentioned_item}' on the board to see "
-                f"if anyone has posted about it.")
-
+                f"Visit the security office too — they collect found items daily.")
+    elif mentioned_item:
+        return (f"Are you asking about a {mentioned_item}? Tell me if you lost it or found it "
+                f"and I'll guide you. You can also search '{mentioned_item}' on the board.")
     elif is_how:
-        return ("To use FindIt: Register with your IIUI email, verify via OTP, then click "
-                "'+ Post Item'. Choose Lost or Found, fill in details with a photo, and submit. "
-                "Others can contact you directly via WhatsApp from your post!")
-
+        return ("Register with your IIUI email, verify via OTP, then click '+ Post Item'. "
+                "Choose Lost or Found, fill details with a photo, and submit. "
+                "Others can contact you directly via WhatsApp!")
     else:
-        return ("I'm FindIt Assistant — I help with lost and found items at IIUI. "
-                "Tell me what you lost or found, or ask me to check the board for a specific item!")
+        return ("I'm FindIt Assistant. Tell me what you lost or found, "
+                "or ask me to check the board for a specific item!")
 
 # ══════════════════════════════════════════════════════════════
 #  AUTH ROUTES
@@ -356,13 +340,20 @@ def register():
         db.commit()
         db.close()
 
+        # Generate OTP and try to send email
         otp = store_otp(email, 'verify')
         session['pending_verify_email'] = email
 
-        # Send email in background — page redirects instantly
-        send_email_async(email, otp, 'verify')
+        # Send email SYNCHRONOUSLY so we know if it worked
+        ok = send_otp_email(email, otp, 'verify')
 
-        flash('Account created! A verification OTP has been sent to your email. Please check your inbox.', 'success')
+        if ok:
+            flash('Account created! A verification OTP has been sent to your email. Please check your inbox.', 'success')
+        else:
+            # Email failed — this is demo/fallback mode
+            flash('Account created! Email could not be delivered right now.', 'info')
+            flash(f'Your OTP is: {otp} — Please use this to verify.', 'info')
+
         return redirect(url_for('verify_email'))
 
     return render_template('register.html')
@@ -403,8 +394,11 @@ def resend_otp():
     if not email:
         return redirect(url_for('register'))
     otp = store_otp(email, 'verify')
-    send_email_async(email, otp, 'verify')
-    flash('A new OTP has been sent to your email.', 'success')
+    ok  = send_otp_email(email, otp, 'verify')
+    if ok:
+        flash('A new OTP has been sent to your email.', 'success')
+    else:
+        flash(f'Email failed. Your OTP is: {otp}', 'info')
     return redirect(url_for('verify_email'))
 
 
@@ -434,8 +428,11 @@ def login():
         if not user['is_verified']:
             session['pending_verify_email'] = email
             otp = store_otp(email, 'verify')
-            send_email_async(email, otp, 'verify')
-            flash('Please verify your email first. A new OTP has been sent to your inbox.', 'info')
+            ok  = send_otp_email(email, otp, 'verify')
+            if ok:
+                flash('Please verify your email first. A new OTP has been sent to your inbox.', 'info')
+            else:
+                flash(f'Please verify your email. OTP: {otp}', 'info')
             return redirect(url_for('verify_email'))
 
         session['user_id']    = user['id']
@@ -459,9 +456,14 @@ def forgot_password():
         db.close()
         if user:
             otp = store_otp(email, 'reset')
-            send_email_async(email, otp, 'reset')
+            ok  = send_otp_email(email, otp, 'reset')
+            if not ok:
+                flash(f'Email failed. Your OTP is: {otp}', 'info')
+            else:
+                flash('Password reset OTP has been sent to your email.', 'success')
+        else:
+            flash('If this email is registered, an OTP has been sent.', 'success')
         session['pending_reset_email'] = email
-        flash('If this email is registered, a password reset OTP has been sent to your inbox.', 'success')
         return redirect(url_for('reset_password'))
     return render_template('forgot_password.html')
 
@@ -667,7 +669,6 @@ YOUR PERSONALITY & RULES:
 
     reply = call_anthropic(messages, system_prompt)
 
-    # Only use fallback if Groq completely fails
     if not reply:
         reply = smart_fallback(user_msg, posts_ctx)
 

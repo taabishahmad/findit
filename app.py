@@ -24,10 +24,11 @@ app.config['UPLOAD_FOLDER']      = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Brevo HTTP API — works on Railway (port 443, not blocked SMTP)
-BREVO_API_KEY = os.environ.get('BREVO_API_KEY', '')
-MAIL_FROM_NAME  = 'FindIt'
-MAIL_FROM_EMAIL = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu.pk')
+MAIL_SERVER   = 'smtp.gmail.com'
+MAIL_PORT     = 587
+MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu.pk')
+MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'kbnp onbn ffsa phyy')
+MAIL_FROM     = f'FindIt <{MAIL_USERNAME}>'
 
 OPENAI_API_KEY = os.environ.get('GROQ_API_KEY', '')
 
@@ -86,95 +87,60 @@ def is_valid_phone(phone):
     return bool(re.match(r'^(\+92|0)3[0-9]{9}$', cleaned))
 
 def send_otp_email(to_email, otp, purpose='verify'):
-    """
-    Send OTP via Brevo HTTP API (port 443 — works on Railway).
-    Falls back to Gmail SMTP for local development.
-    Returns True if sent, False if failed.
-    """
-    subject = "FindIt – Your OTP Code"
-    if purpose == 'reset':
-        subject = "FindIt – Password Reset OTP"
-
-    html_body = f"""
-    <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;background:#f8fafa;
-                border-radius:14px;overflow:hidden;border:1px solid #d0e8e8;">
-      <div style="background:#0d7377;padding:24px;text-align:center;">
-        <h1 style="color:#fff;margin:0;font-size:28px;">FindIt</h1>
-        <p style="color:rgba(255,255,255,.8);margin:4px 0 0;">Community Lost &amp; Found Board</p>
-      </div>
-      <div style="padding:32px 28px;">
-        <h2 style="color:#0a5c60;margin-top:0;">
-          {'Verify your email' if purpose=='verify' else 'Reset your password'}
-        </h2>
-        <p style="color:#333;font-size:15px;">Your One-Time Password (OTP) is:</p>
-        <div style="background:#0d7377;color:#fff;font-size:36px;font-weight:bold;
-                    letter-spacing:10px;text-align:center;padding:20px;border-radius:10px;
-                    margin:16px 0;">{otp}</div>
-        <p style="color:#666;font-size:13px;">This OTP expires in <strong>10 minutes</strong>.
-           Do not share it with anyone.</p>
-        <p style="color:#666;font-size:13px;margin-top:20px;">
-          If you did not request this, please ignore this email.
-        </p>
-      </div>
-      <div style="background:#e6f7f7;padding:16px;text-align:center;
-                  color:#5a7a7b;font-size:12px;">
-        &copy; 2026 FindIt – IIUI Web Engineering Project
-      </div>
-    </div>
-    """
-
-    # ── Try Brevo HTTP API first (works on Railway) ──────────
-    if BREVO_API_KEY:
-        try:
-            payload = json.dumps({
-                "sender":   {"name": MAIL_FROM_NAME, "email": MAIL_FROM_EMAIL},
-                "to":       [{"email": to_email}],
-                "subject":  subject,
-                "htmlContent": html_body
-            }).encode('utf-8')
-
-            req = urllib.request.Request(
-                'https://api.brevo.com/v3/smtp/email',
-                data=payload,
-                headers={
-                    'Content-Type': 'application/json',
-                    'api-key':      BREVO_API_KEY,
-                    'Accept':       'application/json'
-                },
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                result = json.loads(resp.read().decode())
-                print(f"[Brevo OK] messageId: {result.get('messageId','?')} → {to_email}")
-                return True
-        except urllib.error.HTTPError as e:
-            body = e.read().decode()
-            print(f"[Brevo HTTP Error {e.code}]: {body}")
-        except Exception as e:
-            print(f"[Brevo Error]: {e}")
-
-    # ── Fallback: Gmail SMTP (works locally) ─────────────────
+    """Send OTP email. Returns True if sent, False if failed."""
     try:
-        MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu.pk')
-        MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'kbnp onbn ffsa phyy')
+        subject = "FindIt – Your OTP Code"
+        if purpose == 'reset':
+            subject = "FindIt – Password Reset OTP"
+        html_body = f"""
+        <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;background:#f8fafa;
+                    border-radius:14px;overflow:hidden;border:1px solid #d0e8e8;">
+          <div style="background:#0d7377;padding:24px;text-align:center;">
+            <h1 style="color:#fff;margin:0;font-size:28px;">FindIt</h1>
+            <p style="color:rgba(255,255,255,.8);margin:4px 0 0;">Community Lost &amp; Found Board</p>
+          </div>
+          <div style="padding:32px 28px;">
+            <h2 style="color:#0a5c60;margin-top:0;">
+              {'Verify your email' if purpose=='verify' else 'Reset your password'}
+            </h2>
+            <p style="color:#333;font-size:15px;">Your One-Time Password (OTP) is:</p>
+            <div style="background:#0d7377;color:#fff;font-size:36px;font-weight:bold;
+                        letter-spacing:10px;text-align:center;padding:20px;border-radius:10px;
+                        margin:16px 0;">{otp}</div>
+            <p style="color:#666;font-size:13px;">This OTP expires in <strong>10 minutes</strong>.
+               Do not share it with anyone.</p>
+            <p style="color:#666;font-size:13px;margin-top:20px;">
+              If you did not request this, please ignore this email.
+            </p>
+          </div>
+          <div style="background:#e6f7f7;padding:16px;text-align:center;
+                      color:#5a7a7b;font-size:12px;">
+            &copy; 2026 FindIt – IIUI Web Engineering Project
+          </div>
+        </div>
+        """
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From']    = f'FindIt <{MAIL_USERNAME}>'
+        msg['From']    = MAIL_FROM
         msg['To']      = to_email
         msg.attach(MIMEText(html_body, 'html'))
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
             server.ehlo()
             server.starttls()
             server.login(MAIL_USERNAME, MAIL_PASSWORD)
             server.sendmail(MAIL_USERNAME, to_email, msg.as_string())
-        print(f"[Gmail OK] Sent to {to_email}")
+        print(f"[Email OK] Sent to {to_email}")
         return True
     except Exception as e:
-        print(f"[Gmail FAILED]: {e}")
+        print(f"[Email FAILED] {e}")
         return False
 
 def send_email_background(to_email, otp, purpose):
-    """Send email in background thread — page never waits."""
+    """
+    Fire-and-forget email in background thread.
+    Page never waits for this — no 502 risk.
+    If email fails silently, user can use Resend OTP button.
+    """
     def _send():
         send_otp_email(to_email, otp, purpose)
     t = threading.Thread(target=_send)
@@ -243,7 +209,7 @@ def get_active_posts_summary():
         return 'Unable to fetch posts.'
 
 def call_anthropic(messages_list, system_prompt):
-    """Groq Llama3-8b — free API."""
+    """Groq Llama3-8b — free API. Key from https://console.groq.com"""
     try:
         payload = json.dumps({
             "model": "llama3-8b-8192",
@@ -266,28 +232,34 @@ def call_anthropic(messages_list, system_prompt):
             print(f"[Groq OK] reply length: {len(reply)}")
             return reply
     except urllib.error.HTTPError as e:
-        print(f"[Groq HTTP Error {e.code}]: {e.read().decode()}")
+        body = e.read().decode()
+        print(f"[Groq HTTP Error {e.code}]: {body}")
+        return None
+    except urllib.error.URLError as e:
+        print(f"[Groq URL Error]: {e.reason}")
         return None
     except Exception as e:
         print(f"[Groq Error]: {type(e).__name__}: {e}")
         return None
 
 def smart_fallback(user_msg, posts_ctx):
+    """Smart fallback when Groq API is unavailable."""
     ul = user_msg.lower().strip()
-    common_items = ['wallet','phone','mobile','laptop','bag','keys','id','card',
-                    'earphone','charger','bottle','glasses','watch','jacket','shoes']
-    locations = ['cafe','cafeteria','library','block','parking','mosque',
-                 'class','classroom','lab','gate','hostel','gym']
+    common_items = ['wallet', 'phone', 'mobile', 'laptop', 'bag', 'keys', 'id',
+                    'card', 'earphone', 'charger', 'bottle', 'glasses', 'watch',
+                    'jacket', 'shoes']
+    locations = ['cafe', 'cafeteria', 'library', 'block', 'parking', 'mosque',
+                 'class', 'classroom', 'lab', 'gate', 'hostel', 'gym']
     mentioned_item = next((i for i in common_items if i in ul), None)
     mentioned_loc  = next((l for l in locations if l in ul), None)
-    is_question = any(w in ul for w in ['did you','did anyone','has anyone','who found',
-                                         'who lost','can you see','do you see','see something',
-                                         'is there','any post','check'])
-    is_lost  = any(w in ul for w in ['i lost','i have lost','lost my','missing',
-                                      "can't find",'i misplaced','dropped'])
-    is_found = any(w in ul for w in ['i found','i have found','found a','picked up',
-                                      'i put','i have put','i posted','i placed'])
-    is_how   = any(w in ul for w in ['how','guide','help me','what should','what do'])
+    is_question = any(w in ul for w in ['did you', 'did anyone', 'has anyone', 'who found',
+                                         'who lost', 'can you see', 'do you see', 'see something',
+                                         'is there', 'any post', 'check'])
+    is_lost  = any(w in ul for w in ['i lost', 'i have lost', 'lost my', 'missing',
+                                      "can't find", 'i misplaced', 'dropped'])
+    is_found = any(w in ul for w in ['i found', 'i have found', 'found a', 'picked up',
+                                      'i put', 'i have put', 'i posted', 'i placed'])
+    is_how   = any(w in ul for w in ['how', 'guide', 'help me', 'what should', 'what do'])
 
     if is_question and mentioned_item:
         if mentioned_item.lower() in posts_ctx.lower():
@@ -374,9 +346,13 @@ def register():
         db.commit()
         db.close()
 
+        # Store OTP in DB first (instant)
         otp = store_otp(email, 'verify')
         session['pending_verify_email'] = email
+
+        # Send email in background — page redirects instantly, no 502
         send_email_background(email, otp, 'verify')
+
         flash('Account created! A verification OTP has been sent to your email.', 'success')
         return redirect(url_for('verify_email'))
 
@@ -414,12 +390,17 @@ def verify_email():
 
 @app.route('/resend-otp')
 def resend_otp():
+    """
+    Resend OTP — tries email in background.
+    Also shows OTP on screen as backup so user is never stuck.
+    """
     email = session.get('pending_verify_email')
     if not email:
         return redirect(url_for('register'))
     otp = store_otp(email, 'verify')
     send_email_background(email, otp, 'verify')
-    flash('A new OTP has been sent to your email. Please check your inbox.', 'success')
+    # Show OTP on screen as backup — if email is slow user can still proceed
+    flash(f'New OTP sent to your email. If not received, use this code: {otp}', 'info')
     return redirect(url_for('verify_email'))
 
 

@@ -1,6 +1,6 @@
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, flash, jsonify)
-import pymysql, os, re, csv, random, string, json
+import pymysql, os, re, csv, random, string, json, threading
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
@@ -87,15 +87,11 @@ def is_valid_phone(phone):
     return bool(re.match(r'^(\+92|0)3[0-9]{9}$', cleaned))
 
 def send_otp_email(to_email, otp, purpose='verify'):
-    """
-    Sends OTP email synchronously.
-    Returns True if sent successfully, False if failed.
-    """
+    """Send OTP email. Returns True if sent, False if failed."""
     try:
         subject = "FindIt – Your OTP Code"
         if purpose == 'reset':
             subject = "FindIt – Password Reset OTP"
-
         html_body = f"""
         <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;background:#f8fafa;
                     border-radius:14px;overflow:hidden;border:1px solid #d0e8e8;">
@@ -128,17 +124,28 @@ def send_otp_email(to_email, otp, purpose='verify'):
         msg['From']    = MAIL_FROM
         msg['To']      = to_email
         msg.attach(MIMEText(html_body, 'html'))
-
         with smtplib.SMTP(MAIL_SERVER, MAIL_PORT) as server:
             server.ehlo()
             server.starttls()
             server.login(MAIL_USERNAME, MAIL_PASSWORD)
             server.sendmail(MAIL_USERNAME, to_email, msg.as_string())
-        print(f"[Email OK] OTP sent to {to_email}")
+        print(f"[Email OK] Sent to {to_email}")
         return True
     except Exception as e:
         print(f"[Email FAILED] {e}")
         return False
+
+def send_email_background(to_email, otp, purpose):
+    """
+    Fire-and-forget email in background thread.
+    Page never waits for this — no 502 risk.
+    If email fails silently, user can use Resend OTP button.
+    """
+    def _send():
+        send_otp_email(to_email, otp, purpose)
+    t = threading.Thread(target=_send)
+    t.daemon = True
+    t.start()
 
 def store_otp(email, purpose='verify'):
     otp    = generate_otp()
@@ -245,7 +252,6 @@ def smart_fallback(user_msg, posts_ctx):
                  'class', 'classroom', 'lab', 'gate', 'hostel', 'gym']
     mentioned_item = next((i for i in common_items if i in ul), None)
     mentioned_loc  = next((l for l in locations if l in ul), None)
-
     is_question = any(w in ul for w in ['did you', 'did anyone', 'has anyone', 'who found',
                                          'who lost', 'can you see', 'do you see', 'see something',
                                          'is there', 'any post', 'check'])
@@ -257,12 +263,12 @@ def smart_fallback(user_msg, posts_ctx):
 
     if is_question and mentioned_item:
         if mentioned_item.lower() in posts_ctx.lower():
-            return (f"Yes! I can see a post about a {mentioned_item} on the FindIt board. "
-                    f"Go to the main board and search '{mentioned_item}' to see full details "
+            return (f"Yes! There is a post about a {mentioned_item} on the FindIt board. "
+                    f"Search '{mentioned_item}' on the main board to see full details "
                     f"and contact the poster directly via WhatsApp.")
         else:
             return (f"I don't see a current post about a {mentioned_item} on the board. "
-                    f"Post it as lost/found so others can see it. "
+                    f"Post it as lost or found so others can see it. "
                     f"Also check the security office — they hold found items daily.")
     elif is_found:
         item_text = f"the {mentioned_item}" if mentioned_item else "the item"
@@ -272,7 +278,7 @@ def smart_fallback(user_msg, posts_ctx):
                 f"and add your contact. The owner will WhatsApp you directly.")
     elif is_lost:
         item_text = f"your {mentioned_item}" if mentioned_item else "your item"
-        return (f"Post {item_text} on FindIt immediately with a photo and description. "
+        return (f"Post {item_text} on FindIt now with a photo and description. "
                 f"Also check the board — someone may have already posted it as found. "
                 f"Visit the security office too — they collect found items daily.")
     elif mentioned_item:
@@ -340,20 +346,14 @@ def register():
         db.commit()
         db.close()
 
-        # Generate OTP and try to send email
+        # Store OTP in DB first (instant)
         otp = store_otp(email, 'verify')
         session['pending_verify_email'] = email
 
-        # Send email SYNCHRONOUSLY so we know if it worked
-        ok = send_otp_email(email, otp, 'verify')
+        # Send email in background — page redirects instantly, no 502
+        send_email_background(email, otp, 'verify')
 
-        if ok:
-            flash('Account created! A verification OTP has been sent to your email. Please check your inbox.', 'success')
-        else:
-            # Email failed — this is demo/fallback mode
-            flash('Account created! Email could not be delivered right now.', 'info')
-            flash(f'Your OTP is: {otp} — Please use this to verify.', 'info')
-
+        flash('Account created! A verification OTP has been sent to your email.', 'success')
         return redirect(url_for('verify_email'))
 
     return render_template('register.html')
@@ -390,15 +390,17 @@ def verify_email():
 
 @app.route('/resend-otp')
 def resend_otp():
+    """
+    Resend OTP — tries email in background.
+    Also shows OTP on screen as backup so user is never stuck.
+    """
     email = session.get('pending_verify_email')
     if not email:
         return redirect(url_for('register'))
     otp = store_otp(email, 'verify')
-    ok  = send_otp_email(email, otp, 'verify')
-    if ok:
-        flash('A new OTP has been sent to your email.', 'success')
-    else:
-        flash(f'Email failed. Your OTP is: {otp}', 'info')
+    send_email_background(email, otp, 'verify')
+    # Show OTP on screen as backup — if email is slow user can still proceed
+    flash(f'New OTP sent to your email. If not received, use this code: {otp}', 'info')
     return redirect(url_for('verify_email'))
 
 
@@ -428,11 +430,8 @@ def login():
         if not user['is_verified']:
             session['pending_verify_email'] = email
             otp = store_otp(email, 'verify')
-            ok  = send_otp_email(email, otp, 'verify')
-            if ok:
-                flash('Please verify your email first. A new OTP has been sent to your inbox.', 'info')
-            else:
-                flash(f'Please verify your email. OTP: {otp}', 'info')
+            send_email_background(email, otp, 'verify')
+            flash('Please verify your email. A new OTP has been sent to your inbox.', 'info')
             return redirect(url_for('verify_email'))
 
         session['user_id']    = user['id']
@@ -456,11 +455,8 @@ def forgot_password():
         db.close()
         if user:
             otp = store_otp(email, 'reset')
-            ok  = send_otp_email(email, otp, 'reset')
-            if not ok:
-                flash(f'Email failed. Your OTP is: {otp}', 'info')
-            else:
-                flash('Password reset OTP has been sent to your email.', 'success')
+            send_email_background(email, otp, 'reset')
+            flash('Password reset OTP has been sent to your email.', 'success')
         else:
             flash('If this email is registered, an OTP has been sent.', 'success')
         session['pending_reset_email'] = email
@@ -651,7 +647,7 @@ YOUR PERSONALITY & RULES:
 - Always give a DIFFERENT, CONTEXTUAL response based on what the user actually said
 - Read the conversation history carefully and respond to what was JUST said
 - If someone says they posted something, acknowledge it and tell them what to expect next
-- If someone mentions a specific item (wallet, phone etc), reference that specific item in your reply
+- If someone mentions a specific item (wallet, phone etc), reference that specific item
 - If someone mentions a location (cafe, library etc), reference that location
 - Check the LIVE BOARD DATA above — if their item appears there, tell them specifically
 - Keep replies to 2-3 sentences — short and helpful
@@ -668,7 +664,6 @@ YOUR PERSONALITY & RULES:
     messages.append({'role': 'user', 'content': user_msg})
 
     reply = call_anthropic(messages, system_prompt)
-
     if not reply:
         reply = smart_fallback(user_msg, posts_ctx)
 
@@ -696,7 +691,7 @@ def ai_suggest():
     itype = data.get('type', 'lost')
     if not title:
         return jsonify({'suggestion': ''})
-    system = "You are a helpful assistant for a Lost & Found board. Given an item name and description, suggest a better, more detailed description that will help someone identify the item. Keep it under 60 words. Be specific about colour, brand, size, and identifying features."
+    system = "You are a helpful assistant for a Lost & Found board. Given an item name and description, suggest a better, more detailed description. Keep it under 60 words. Be specific about colour, brand, size, and identifying features."
     messages = [{'role': 'user', 'content': f"Item: {title}\nType: {itype}\nDescription: {desc}\n\nSuggest an improved description:"}]
     reply = call_anthropic(messages, system)
     return jsonify({'suggestion': reply or ''})

@@ -291,14 +291,13 @@ def register():
         # Generate OTP and store it
         otp = store_otp(email, 'verify')
 
-        # Set session BEFORE sending email (so redirect works instantly)
+        # Set session before redirect
         session['pending_verify_email'] = email
 
-        # Show OTP immediately as flash so user doesn't wait
-        flash(f'Account created! Your OTP is: {otp} — Also check your email.', 'success')
-
-        # Send email in background (non-blocking — won't cause page to hang)
+        # Send email in background thread (non-blocking)
         send_email_async(email, otp, 'verify')
+
+        flash('Account created! A verification OTP has been sent to your email. Please check your inbox.', 'success')
 
         return redirect(url_for('verify_email'))
 

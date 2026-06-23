@@ -27,7 +27,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 MAIL_SERVER   = 'smtp.gmail.com'
 MAIL_PORT     = 587
 MAIL_USERNAME = os.environ.get('MAIL_USERNAME', 'tabish.bscs4969@student.iiu.edu.pk')
-MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', 'kbnp onbn ffsa phyy')
+MAIL_PASSWORD = os.environ.get('MAIL_PASSWORD', '')
 MAIL_FROM     = f'FindIt <{MAIL_USERNAME}>'
 
 OPENAI_API_KEY = os.environ.get('GROQ_API_KEY', '')
